@@ -33,7 +33,6 @@ transformer = torchvision.transforms.Compose(
 )
 
 
-
 def train(model, optimizer, data_loader: DataLoader):
     model.train()
     for epoch in range(EPOCHS):
@@ -135,9 +134,14 @@ if __name__ == '__main__':
     loss_func = F.cross_entropy
 
     if CONFIG['LOAD_PREV']:
-        print('Loading model state-dict.')
-        sd_path = os.path.join(os.getcwd(), f'model_state_dict{5}.pth')
-        my_resnet_model.load_state_dict(torch.load(sd_path))
+        state_dict_name = f'model_state_dict{5}.pth'
+        if os.path.exists(state_dict_name):
+            print(f'Loading model state dict: {state_dict_name}')
+            sd_path = os.path.join(os.getcwd(), state_dict_name)
+            my_resnet_model.load_state_dict(torch.load(sd_path))
+        else:
+            print(f'Could not find file: {state_dict_name}')
+            exit(-1)
     if CONFIG['TRAIN']:
         print('Training model.')
         train(my_resnet_model, optimizer, data_loader=train_loader)

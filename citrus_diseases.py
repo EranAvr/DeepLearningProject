@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import torch
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from torchvision.models import resnet50
 from torch.utils.data.dataloader import DataLoader
 import torch.nn as nn
@@ -34,6 +35,7 @@ transformer = torchvision.transforms.Compose(
 
 
 def train(model, optimizer, data_loader: DataLoader):
+    writer = SummaryWriter()
     model.train()
     for epoch in range(EPOCHS):
         print(f'>>> Epoch #{epoch}')
@@ -46,6 +48,7 @@ def train(model, optimizer, data_loader: DataLoader):
             predictions = model(images)
             # 2. calc loss
             loss = loss_func(predictions, labels)
+            writer.add_scalar("Loss/train", loss, epoch)
             # backward propagataion
             optimizer.zero_grad()
             loss.backward()
@@ -55,6 +58,8 @@ def train(model, optimizer, data_loader: DataLoader):
             print(f'Train: complete={round((img_checked/len(train_dataset))*100, 3)}%\timages '
                   f'processed={img_checked}/{len(train_dataset)}\t\tloss={loss}')
         torch.save(model.state_dict(), os.path.join(os.getcwd(), f'model_state_dict{5}.pth'))
+        writer.flush()
+        writer.close()
 
 
 def test(model, data_loader: DataLoader, record=False):
@@ -113,9 +118,9 @@ if __name__ == '__main__':
     EPOCHS = 5
     BATCH_SIZE = 16
     LEARNING_RATE = 0.0001
-    CONFIG = {'TRAIN': False,
+    CONFIG = {'TRAIN': True,
               'TEST': True,
-              'LOAD_PREV': True}
+              'LOAD_PREV': False}
 
     #   Datasets:
     train_dataset = ImageFolder(TRAIN_DIR, transform=transformer)

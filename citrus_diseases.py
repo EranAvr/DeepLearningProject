@@ -3,20 +3,25 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import pandas as pd
 import os
+
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.models import resnet50
 from torch.utils.data.dataloader import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
+
 import torchvision
 from torchvision.datasets import ImageFolder
+from torchvision.models import resnet50
 
 
 BASE_DIR = 'D:\\Datasets\\good_citrus_dataset_cut'
 TRAIN_DIR = os.path.join(BASE_DIR, 'train')
 TEST_DIR = os.path.join(BASE_DIR, 'test')
+RECORD_DIR = 'records/'
+if not os.path.exists(RECORD_DIR):
+    os.mkdir(RECORD_DIR)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -34,39 +39,64 @@ transformer = torchvision.transforms.Compose(
 )
 
 
-def train(model, optimizer, data_loader: DataLoader):
-    writer = SummaryWriter()
+def train(model, optimizer, data_loader: DataLoader, record=False):
+    records_df = pd.DataFrame({'epoch': [], 'batch': [], 'avg_loss': [],
+                               'running_loss': []})
     model.train()
+    x_ax = []
+    y_ax = []
     for epoch in range(EPOCHS):
         print(f'>>> Epoch #{epoch}')
         batch_count = 0
-        img_checked = 0
+        img_count = 0
+        running_loss = 0
         for batch in data_loader:
             batch_count += 1
             images, labels = batch
+            # to cuda:
+            #   model = model.to(device)
+            #   images = images.to(device)
+            #   labels = labels.to(device)
             # 1. feed model
             predictions = model(images)
             # 2. calc loss
             loss = loss_func(predictions, labels)
-            writer.add_scalar("Loss/train", loss, epoch)
-            # backward propagataion
+            running_loss += loss.item() * images.size(0)
+            # 3. backward propagataion
             optimizer.zero_grad()
             loss.backward()
-            # optimizer step()
             optimizer.step()
-            img_checked += len(images)
-            print(f'Train: complete={round((img_checked/len(train_dataset))*100, 3)}%\timages '
-                  f'processed={img_checked}/{len(train_dataset)}\t\tloss={loss}')
-        torch.save(model.state_dict(), os.path.join(os.getcwd(), f'model_state_dict{5}.pth'))
-        writer.flush()
-        writer.close()
+            # to cpu:
+            #     model = model.to('cpu')
+            #     images = images.to('cpu')
+            #     labels = labels.to('cpu')
+
+            img_count += len(images)
+            print(
+                f'Train: complete={round((img_count / len(train_dataset)) * 100, 3)}%\timages '
+                f'processed={img_count}/{len(train_dataset)}\t\tloss={loss}\trunning loss:{running_loss}')
+            if record:
+                records_df.loc[len(records_df.index)] = [epoch, batch_count,
+                                                         loss.item(),
+                                                         running_loss]
+        # for each epoch:
+        torch.save(model.state_dict(), os.path.join(os.getcwd(), f'model_state_dict{epoch}.pth'))
+        x_ax.append(epoch + 1)
+        y_ax.append(running_loss)
+    # end of test:
+    if record:
+        records_df.to_csv(f'{RECORD_DIR}citrus_dis_train_record.csv')
+        plt.plot(x_ax, y_ax, marker='o')
+        plt.title(f'Training: batch={BATCH_SIZE} lr={LEARNING_RATE}')
+        plt.xlabel('Epochs')
+        plt.ylabel('Running Loss')
+        plt.savefig(f'{RECORD_DIR}train_graph.png')
 
 
 def test(model, data_loader: DataLoader, record=False):
-    record_dir = 'test_records/'
-    records_df = pd.DataFrame({'processed': [], 'missed': [], 'predictions': [], 'true labels': [], 'differences': []})
-    if not os.path.exists(record_dir):
-        os.mkdir(record_dir)
+    records_df = pd.DataFrame({'processed': [], 'missed': [], 'success': [],
+                               'predictions': [], 'true labels': [],
+                               'differences': []})
     with torch.no_grad():
         img_count = 0
         model.eval()
@@ -86,6 +116,7 @@ def test(model, data_loader: DataLoader, record=False):
             if record:
                 # build Dataframe records table:
                 records_df.loc[len(records_df.index)] = [img_count, img_missed,
+                                                         ((images.size(0)-img_missed)/images.size(0))*100,
                                                          predictions.tolist(),
                                                          labels.tolist(),
                                                          misses_vector.tolist()]
@@ -103,10 +134,9 @@ def test(model, data_loader: DataLoader, record=False):
                                 f'pred: {test_dataset.classes[predictions[idx]]}')
 
                     idx += 1
-                #plt.show()
-                plt.savefig(f'{record_dir}test_batch{batch_count}.png')
+                plt.savefig(f'{RECORD_DIR}test_batch{batch_count}.png')
             batch_count += 1
-    records_df.to_csv(f'{record_dir}citrus_dis_test_record.csv')
+    records_df.to_csv(f'{RECORD_DIR}citrus_dis_test_record.csv')
 def pred_to_binary(pred: torch.Tensor):
     dim = len(pred)
     pred = torch.sigmoid(pred).numpy()
@@ -118,9 +148,9 @@ if __name__ == '__main__':
     EPOCHS = 5
     BATCH_SIZE = 16
     LEARNING_RATE = 0.0001
-    CONFIG = {'TRAIN': True,
+    CONFIG = {'TRAIN': False,
               'TEST': True,
-              'LOAD_PREV': False}
+              'LOAD_PREV': True}
 
     #   Datasets:
     train_dataset = ImageFolder(TRAIN_DIR, transform=transformer)
@@ -149,7 +179,7 @@ if __name__ == '__main__':
             exit(-1)
     if CONFIG['TRAIN']:
         print('Training model.')
-        train(my_resnet_model, optimizer, data_loader=train_loader)
+        train(my_resnet_model, optimizer, data_loader=train_loader, record=True)
     if CONFIG['TEST']:
         print('Testing model.')
         test(my_resnet_model, data_loader=test_loader, record=True)
